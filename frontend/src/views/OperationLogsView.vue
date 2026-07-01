@@ -4,7 +4,7 @@
 
     <el-form inline style="margin-bottom: 16px">
       <el-form-item label="Server">
-        <el-select v-model="filterServerId" clearable placeholder="All" @change="loadLogs">
+        <el-select v-model="filterServerId" clearable placeholder="All" style="min-width: 200px" @change="loadLogs">
           <el-option v-for="s in serverStore.servers" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
       </el-form-item>

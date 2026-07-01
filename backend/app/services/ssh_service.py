@@ -1,3 +1,17 @@
+"""
+SSH 服务模块 - 提供对远程服务器的各类操作
+
+本模块封装了通过 SSH 协议对远程服务器执行的常见操作,包括:
+- SSH 连接测试
+- 服务扫描与状态检测
+- 服务启停控制
+- 配置文件读取/写入
+- JAR 包上传/删除
+
+所有 SSH 操作均为同步阻塞 I/O,为了不阻塞 FastAPI 事件循环,
+统一使用 run_in_executor 将其放到线程池中执行。
+"""
+
 import asyncio
 import logging
 
@@ -12,24 +26,79 @@ from app.utils.ssh_client import SSHClient, SSHConnectionInfo
 
 
 def _validate_yaml(content: str) -> None:
-    """Validate YAML content, ignoring custom tags like !AUTHORITY."""
+    """
+    校验 YAML 内容是否合法
+
+    Args:
+        content: YAML 格式的字符串内容
+
+    Raises:
+        yaml.YAMLError: 当 YAML 语法错误时抛出
+
+    Notes:
+        - 使用 SafeLoader 防止任意代码执行
+        - 通过 add_multi_constructor 忽略自定义标签(如 Spring 的 !AUTHORITY)
+    """
     loader = yaml.SafeLoader
     loader.add_multi_constructor("", lambda loader, suffix, node: None)
     yaml.load(content, Loader=loader)
 
 
 def _service_dir(server: Server, service_name: str, custom_path: str | None = None) -> str:
+    """
+    计算服务的完整目录路径
+
+    Args:
+        server: 服务器对象,包含 service_base_path 配置
+        service_name: 服务名称
+        custom_path: 自定义路径(可选),优先于默认路径
+
+    Returns:
+        服务目录的绝对路径,末尾不带斜杠
+        格式: /home/apps/services/service-name 或 custom-path
+
+    Examples:
+        _service_dir(server, "myapp") -> "/home/apps/services/myapp"
+        _service_dir(server, "myapp", "/opt/myapp") -> "/opt/myapp"
+    """
     if custom_path:
         return custom_path.rstrip("/")
     return f"{server.service_base_path.rstrip('/')}/{service_name}"
 
 
 def _parse_extensions(ext_str: str) -> tuple[str, ...]:
+    """
+    解析配置文件扩展名列表
+
+    Args:
+        ext_str: 逗号分隔的扩展名字符串,如 "yml,yaml,xml"
+
+    Returns:
+        标准化后的扩展名元组,每个扩展名以点开头
+        默认值: (".yml", ".yaml", ".xml")
+
+    Examples:
+        _parse_extensions("yml,yaml,xml") -> (".yml", ".yaml", ".xml")
+        _parse_extensions(".yml, .yaml") -> (".yml", ".yaml")
+    """
     exts = [e.strip().lstrip(".") for e in ext_str.split(",") if e.strip()]
     return tuple(f".{e}" for e in exts) if exts else (".yml", ".yaml", ".xml")
 
 
 def _build_ssh_info(server: ServerWithCredentials) -> SSHConnectionInfo:
+    """
+    根据服务器凭证构建 SSH 连接信息
+
+    Args:
+        server: 包含解密后凭证的服务器对象
+
+    Returns:
+        SSHConnectionInfo 对象,包含连接所需的全部信息
+
+    Notes:
+        - 根据 auth_type 决定使用密码还是私钥认证
+        - become_* 用于权限提升(sudo/su)
+    """
     return SSHConnectionInfo(
         host=server.host,
         port=server.port,
@@ -43,6 +112,19 @@ def _build_ssh_info(server: ServerWithCredentials) -> SSHConnectionInfo:
 
 
 def _server_with_creds(server: Server) -> ServerWithCredentials:
+    """
+    从数据库模型中解密并构建包含凭证的服务器对象
+
+    Args:
+        server: 从数据库读取的 Server 模型对象(加密字段未解密)
+
+    Returns:
+        ServerWithCredentials 对象,包含解密后的密码/私钥
+
+    Notes:
+        - 加密字段在数据库中以密文存储
+        - 调用此函数前需确保已初始化加密密钥
+    """
     d = ServerWithCredentials(
         id=server.id,
         name=server.name,
@@ -66,9 +148,27 @@ def _server_with_creds(server: Server) -> ServerWithCredentials:
 
 
 class SSHService:
+    """
+    SSH 远程操作服务类
+
+    提供静态方法封装对远程服务器的各类操作。
+    所有方法均为异步,但 SSH 底层为同步 I/O,
+    因此内部使用 run_in_executor 在线程池中执行。
+    """
 
     @staticmethod
     async def test_connection(server: Server) -> tuple[bool, str]:
+        """
+        测试 SSH 连接是否可用
+
+        Args:
+            server: 服务器对象
+
+        Returns:
+            (成功标志, 消息) 元组
+            成功时: (True, "Connection successful")
+            失败时: (False, 错误原因)
+        """
         creds = _server_with_creds(server)
         ssh = SSHClient(_build_ssh_info(creds))
         loop = asyncio.get_event_loop()
@@ -76,6 +176,20 @@ class SSHService:
 
     @staticmethod
     async def scan_services(server: Server) -> list[str]:
+        """
+        扫描服务器服务基础目录,发现所有服务
+
+        Args:
+            server: 服务器对象
+
+        Returns:
+            服务名称列表(目录名)
+            仅返回子目录,不含文件
+
+        Notes:
+            - 扫描 server.service_base_path 下的所有子目录
+            - 使用 st_mode 的目录标志位(0o40000)过滤
+        """
         creds = _server_with_creds(server)
         ssh = SSHClient(_build_ssh_info(creds))
         loop = asyncio.get_event_loop()
@@ -100,6 +214,25 @@ class SSHService:
 
     @staticmethod
     async def get_service_status(server: Server, service_name: str) -> str:
+        """
+        获取服务的运行状态
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+
+        Returns:
+            服务状态字符串:
+            - "running": 服务正在运行
+            - "stopped": 服务已停止
+            - "unknown": 无法确定状态(连接错误等)
+
+        Detection Logic:
+            1. 优先使用 systemctl is-active 命令
+            2. 回退方案: 使用 ps 命令配合路径正则匹配
+               正则 /service-name/ 或 /service-name$ 避免前缀冲突
+               (如 es-data-sync 不会匹配 es-data-sync-1)
+        """
         creds = _server_with_creds(server)
         ssh = SSHClient(_build_ssh_info(creds))
         loop = asyncio.get_event_loop()
@@ -108,7 +241,7 @@ class SSHService:
         def _check():
             ssh.connect()
             try:
-                # 1) try systemctl
+                # 1) 优先使用 systemctl 检测 systemd 服务
                 cmd1 = f"systemctl is-active {service_name} 2>/dev/null"
                 logger.info("[%s] cmd: %s", host, cmd1)
                 _, out, _ = ssh.exec_command(cmd1)
@@ -117,8 +250,8 @@ class SSHService:
                 if out == "active":
                     return "running"
 
-                # 2) path-based match: /service_name/ or /service_name at end of line
-                # This avoids prefix collisions: es-data-sync won't match es-data-sync-1
+                # 2) 回退方案: 通过进程列表和路径匹配检测
+                # 正则 /service-name/ 或 /service-name$ 避免前缀冲突
                 cmd2 = f"sh -c \"ps -ef | grep -E '/({service_name})(/|\$)' | grep -v grep\""
                 logger.info("[%s] cmd: %s", host, cmd2)
                 _, out, _ = ssh.exec_command(cmd2)
@@ -138,6 +271,27 @@ class SSHService:
     async def _service_control(
         server: Server, service_name: str, action: str, custom_path: str | None = None, control_method: str = "auto"
     ) -> tuple[bool, str]:
+        """
+        服务控制的核心实现(start/stop/restart 复用此方法)
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            action: 操作类型 ("start", "stop", "restart")
+            custom_path: 服务自定义路径
+            control_method: 控制方式
+                - "auto": 自动选择(优先 systemd, 回退脚本)
+                - "systemd": 仅使用 systemctl
+                - "script": 仅使用 bin/start.sh 等脚本
+
+        Returns:
+            (成功标志, 消息) 元组
+
+        Control Logic:
+            1. 尝试 systemctl 命令
+               - 如果返回 "not-found" 或 "Failed" 则认为失败
+            2. 回退方案: 查找 bin/start.sh 或 script/start.sh 脚本执行
+        """
         creds = _server_with_creds(server)
         ssh = SSHClient(_build_ssh_info(creds))
         loop = asyncio.get_event_loop()
@@ -146,17 +300,21 @@ class SSHService:
         def _exec():
             ssh.connect()
             try:
+                # 方案1: 尝试 systemctl
                 if control_method in ("auto", "systemd"):
                     _, out, err = ssh.exec_command(
                         f"systemctl {action} {service_name} 2>&1"
                     )
                     err = err.strip()
                     out = out.strip()
+                    # 检查 systemctl 是否成功执行(不包含错误标识)
                     if "not-found" not in err and "not loaded" not in err and "Failed" not in err and "Unit" not in err:
                         return True, out or err or f"systemctl {action} succeeded"
+                    # 强制使用 systemd 模式时,失败直接返回
                     if control_method == "systemd":
                         return False, f"systemctl {action} failed: {err}"
 
+                # 方案2: 回退到脚本方式
                 if control_method in ("auto", "script"):
                     for d in ("bin", "script"):
                         script_path = f"{svc_dir}/{d}/{action}.sh"
@@ -177,19 +335,83 @@ class SSHService:
         return await loop.run_in_executor(None, _exec)
 
     @staticmethod
-    async def start_service(server: Server, service_name: str, custom_path: str | None = None, control_method: str = "auto") -> tuple[bool, str]:
+    async def start_service(
+        server: Server, service_name: str, custom_path: str | None = None, control_method: str = "auto"
+    ) -> tuple[bool, str]:
+        """
+        启动指定服务
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            custom_path: 服务自定义路径
+            control_method: 控制方式
+
+        Returns:
+            (成功标志, 消息) 元组
+        """
         return await SSHService._service_control(server, service_name, "start", custom_path, control_method)
 
     @staticmethod
-    async def stop_service(server: Server, service_name: str, custom_path: str | None = None, control_method: str = "auto") -> tuple[bool, str]:
+    async def stop_service(
+        server: Server, service_name: str, custom_path: str | None = None, control_method: str = "auto"
+    ) -> tuple[bool, str]:
+        """
+        停止指定服务
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            custom_path: 服务自定义路径
+            control_method: 控制方式
+
+        Returns:
+            (成功标志, 消息) 元组
+        """
         return await SSHService._service_control(server, service_name, "stop", custom_path, control_method)
 
     @staticmethod
-    async def restart_service(server: Server, service_name: str, custom_path: str | None = None, control_method: str = "auto") -> tuple[bool, str]:
+    async def restart_service(
+        server: Server, service_name: str, custom_path: str | None = None, control_method: str = "auto"
+    ) -> tuple[bool, str]:
+        """
+        重启指定服务
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            custom_path: 服务自定义路径
+            control_method: 控制方式
+
+        Returns:
+            (成功标志, 消息) 元组
+        """
         return await SSHService._service_control(server, service_name, "restart", custom_path, control_method)
 
     @staticmethod
-    async def list_config_files(server: Server, service_name: str, custom_path: str | None = None, extensions: str | None = None) -> list[dict]:
+    async def list_config_files(
+        server: Server, service_name: str, custom_path: str | None = None, extensions: str | None = None
+    ) -> list[dict]:
+        """
+        列出服务目录下的配置文件
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            custom_path: 服务自定义路径
+            extensions: 额外的扩展名过滤(可选),默认使用 server.config_extensions
+
+        Returns:
+            文件信息列表,每个元素包含:
+            - name: 文件名
+            - dir: 所在目录 ("conf" 或 "config")
+            - size: 文件大小(字节)
+            - modified_at: 修改时间戳
+
+        Notes:
+            - 扫描 conf/ 和 config/ 两个目录
+            - 仅返回符合扩展名的文件
+        """
         creds = _server_with_creds(server)
         ssh = SSHClient(_build_ssh_info(creds))
         loop = asyncio.get_event_loop()
@@ -207,11 +429,13 @@ class SSHService:
                     try:
                         attrs = ssh.list_dir(conf_dir)
                     except Exception:
+                        # 目录不存在时跳过
                         continue
                     for a in attrs:
                         if not a.st_mode:
                             continue
                         is_dir = bool(a.st_mode & 0o40000)
+                        # 跳过目录和非配置文件
                         if is_dir or not a.filename.endswith(valid_ext):
                             continue
                         stat = ssh.stat_file(f"{conf_dir}/{a.filename}")
@@ -231,6 +455,20 @@ class SSHService:
 
     @staticmethod
     async def _resolve_config_path(server: Server, service_name: str, filename: str) -> str:
+        """
+        解析配置文件的实际路径
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            filename: 文件名
+
+        Returns:
+            配置文件的完整路径
+
+        Notes:
+            依次检查 conf/ 和 config/ 目录,返回第一个存在的路径
+        """
         base = server.service_base_path.rstrip("/")
         for d in ("conf", "config"):
             path = f"{base}/{service_name}/{d}/{filename}"
@@ -251,7 +489,22 @@ class SSHService:
         return f"{base}/{service_name}/conf/{filename}"
 
     @staticmethod
-    async def read_config_file(server: Server, service_name: str, filename: str, dir: str = "conf", custom_path: str | None = None) -> str:
+    async def read_config_file(
+        server: Server, service_name: str, filename: str, dir: str = "conf", custom_path: str | None = None
+    ) -> str:
+        """
+        读取远程配置文件内容
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            filename: 文件名
+            dir: 配置文件目录,默认 "conf"
+            custom_path: 服务自定义路径
+
+        Returns:
+            文件内容(UTF-8 字符串)
+        """
         creds = _server_with_creds(server)
         ssh = SSHClient(_build_ssh_info(creds))
         loop = asyncio.get_event_loop()
@@ -271,7 +524,27 @@ class SSHService:
     @staticmethod
     async def write_config_file(
         server: Server, service_name: str, filename: str, content: str, dir: str = "conf", custom_path: str | None = None
-    ) -> str:
+    ) -> tuple[str, str | None]:
+        """
+        写入远程配置文件
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            filename: 文件名
+            content: 新的文件内容
+            dir: 配置文件目录,默认 "conf"
+            custom_path: 服务自定义路径
+
+        Returns:
+            (文件路径, 备份路径或None) 元组
+
+        Safety Features:
+            - YAML 文件写入前自动校验语法
+            - 原文件存在时自动备份为 .bak-YYYYMMDD
+            - 备份操作在写入前完成,确保数据安全
+        """
+        # YAML 语法校验
         if filename.endswith((".yml", ".yaml")):
             _validate_yaml(content)
         creds = _server_with_creds(server)
@@ -284,12 +557,14 @@ class SSHService:
             bak = None
             ssh.connect()
             try:
+                # 如果原文件存在,先备份
                 if ssh.path_exists(remote_path):
                     from datetime import date
 
                     today = date.today().strftime("%Y%m%d")
                     bak = f"{remote_path}.bak-{today}"
                     ssh.rename(remote_path, bak)
+                # 写入新内容
                 ssh.write_file(remote_path, content.encode("utf-8"))
                 return bak
             finally:
@@ -300,6 +575,20 @@ class SSHService:
 
     @staticmethod
     async def list_jars(server: Server, service_name: str, custom_path: str | None = None) -> list[dict]:
+        """
+        列出服务 lib 目录下的所有 JAR 文件
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            custom_path: 服务自定义路径
+
+        Returns:
+            JAR 文件信息列表,每个元素包含:
+            - name: 文件名
+            - size: 文件大小(字节)
+            - modified_at: 修改时间戳
+        """
         creds = _server_with_creds(server)
         ssh = SSHClient(_build_ssh_info(creds))
         loop = asyncio.get_event_loop()
@@ -334,7 +623,23 @@ class SSHService:
     @staticmethod
     async def upload_jar(
         server: Server, service_name: str, filename: str, content: bytes, custom_path: str | None = None
-    ) -> str:
+    ) -> tuple[str, str | None]:
+        """
+        上传 JAR 文件到远程服务器
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            filename: 文件名
+            content: 文件内容(二进制)
+            custom_path: 服务自定义路径
+
+        Returns:
+            (文件路径, 备份路径或None) 元组
+
+        Safety Features:
+            - 原文件存在时自动备份为 .bak-YYYYMMDD
+        """
         creds = _server_with_creds(server)
         ssh = SSHClient(_build_ssh_info(creds))
         loop = asyncio.get_event_loop()
@@ -361,6 +666,19 @@ class SSHService:
 
     @staticmethod
     async def delete_jar(server: Server, service_name: str, filename: str, custom_path: str | None = None) -> None:
+        """
+        删除远程服务器上的 JAR 文件
+
+        Args:
+            server: 服务器对象
+            service_name: 服务名称
+            filename: 文件名
+            custom_path: 服务自定义路径
+
+        Safety Features:
+            - 不直接删除文件,而是重命名为 .deleted-YYYYMMDD
+            - 保留删除历史,便于恢复
+        """
         creds = _server_with_creds(server)
         ssh = SSHClient(_build_ssh_info(creds))
         loop = asyncio.get_event_loop()

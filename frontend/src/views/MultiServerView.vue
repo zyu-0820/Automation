@@ -87,13 +87,14 @@
                 v-model="loadFromServiceId"
                 placeholder="Optional"
                 clearable
+                value-key="id"
                 @change="handleLoadContent"
                 style="width: 100%"
               >
                 <el-option
                   v-for="svc in flatSelectedServices"
                   :key="svc.id"
-                  :label="svc.serverName + ' / ' + svc.name"
+                  :label="(svc.serverName || 'Server ' + svc.server_id) + ' / ' + svc.name"
                   :value="svc.id"
                 />
               </el-select>
