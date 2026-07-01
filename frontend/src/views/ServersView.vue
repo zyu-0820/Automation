@@ -8,7 +8,11 @@
     </div>
 
     <el-table :data="store.servers" v-loading="store.loading" stripe>
-      <el-table-column prop="name" label="Name" min-width="120" />
+      <el-table-column label="Name" min-width="120">
+        <template #default="{ row }">
+          <el-link type="primary" @click="$router.push(`/servers/${row.id}`)">{{ row.name }}</el-link>
+        </template>
+      </el-table-column>
       <el-table-column prop="host" label="Host" min-width="140" />
       <el-table-column prop="port" label="Port" width="80" />
       <el-table-column prop="username" label="User" width="100" />
