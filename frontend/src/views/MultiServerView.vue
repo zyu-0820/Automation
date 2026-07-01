@@ -100,12 +100,18 @@
               </el-select>
             </div>
           </div>
-          <label style="display:block; margin: 12px 0 4px">Content</label>
+          <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
+            <label>Content</label>
+            <el-radio-group v-model="configMode" size="small">
+              <el-radio value="overwrite">Overwrite</el-radio>
+              <el-radio value="append">Append</el-radio>
+            </el-radio-group>
+          </div>
           <el-input
             v-model="configContent"
             type="textarea"
             :rows="18"
-            placeholder="Enter config content, or select a service above to load existing content..."
+            :placeholder="configMode === 'append' ? 'Content to append to the end of the file...' : 'Enter config content, or select a service above to load existing content...'"
             style="font-family: monospace; font-size: 13px"
           />
         </div>
@@ -133,9 +139,10 @@
     <!-- Step 3: Confirm & execute -->
     <div v-if="step === 2">
       <el-descriptions :column="2" border>
-        <el-descriptions-item label="Operation">{{ operationType === 'config' ? 'Update Config' : 'Upload JAR' }}</el-descriptions-item>
+        <el-descriptions-item label="Operation">{{ operationType === 'config' ? (configMode === 'append' ? 'Append Config' : 'Update Config') : 'Upload JAR' }}</el-descriptions-item>
         <el-descriptions-item label="Target Services">{{ selectedServiceIds.length }}</el-descriptions-item>
         <el-descriptions-item v-if="operationType === 'config'" label="File">{{ configDir }}/{{ configFilename }}</el-descriptions-item>
+        <el-descriptions-item v-if="operationType === 'config'" label="Mode">{{ configMode === 'append' ? 'Append' : 'Overwrite' }}</el-descriptions-item>
         <el-descriptions-item v-if="operationType === 'jar'" label="File">{{ batchJarFile?.name }}</el-descriptions-item>
       </el-descriptions>
 
@@ -187,6 +194,7 @@ const operationType = ref('config')
 const configFilename = ref('')
 const configDir = ref('conf')
 const configDirs = ref(['conf', 'config'])
+const configMode = ref('overwrite')
 const loadFromServiceId = ref(null)
 const configContent = ref('')
 const commonConfigFiles = ref([])
@@ -287,7 +295,8 @@ async function handleExecute() {
         selectedServiceIds.value,
         configFilename.value,
         configContent.value,
-        configDir.value
+        configDir.value,
+        configMode.value
       )
     } else {
       result = await operationApi.batchUploadJar(

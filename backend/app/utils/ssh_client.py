@@ -180,6 +180,16 @@ class SSHClient:
         except FileNotFoundError:
             return False
 
+    def append_file(self, remote_path: str, content: bytes) -> None:
+        if not self._client:
+            self.connect()
+        import time
+        tmp = f"/tmp/jsm_append_{int(time.time() * 1000000)}"
+        with self._sftp.open(tmp, "wb") as f:
+            f.write(content)
+        self.exec_command(f"cat {tmp} >> {remote_path}")
+        self.exec_command(f"rm -f {tmp}")
+
     def rename(self, old_path: str, new_path: str) -> None:
         if not self._client:
             self.connect()

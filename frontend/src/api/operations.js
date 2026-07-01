@@ -4,12 +4,13 @@ export function getOperations(params) {
   return request.get('/operations', { params })
 }
 
-export function batchUpdateConfig(serviceIds, filename, content, dir = 'conf') {
+export function batchUpdateConfig(serviceIds, filename, content, dir = 'conf', mode = 'overwrite') {
   return request.post('/operations/batch/config', {
     service_ids: serviceIds,
     filename,
     content,
     dir,
+    mode,
   })
 }
 

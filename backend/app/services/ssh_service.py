@@ -574,6 +574,36 @@ class SSHService:
         return remote_path, backup_path
 
     @staticmethod
+    async def append_config_file(
+        server: Server, service_name: str, filename: str, content: str, dir: str = "conf", custom_path: str | None = None
+    ) -> tuple[str, str | None]:
+        if filename.endswith((".yml", ".yaml")):
+            _validate_yaml(content)
+        creds = _server_with_creds(server)
+        ssh = SSHClient(_build_ssh_info(creds))
+        loop = asyncio.get_event_loop()
+        svc_dir = _service_dir(server, service_name, custom_path)
+        remote_path = f"{svc_dir}/{dir}/{filename}"
+
+        def _append():
+            bak = None
+            ssh.connect()
+            try:
+                if ssh.path_exists(remote_path):
+                    from datetime import date
+
+                    today = date.today().strftime("%Y%m%d")
+                    bak = f"{remote_path}.bak-{today}"
+                    ssh.exec_command(f"cp -p {remote_path} {bak}")
+                ssh.append_file(remote_path, content.encode("utf-8"))
+                return bak
+            finally:
+                ssh.close()
+
+        backup_path = await loop.run_in_executor(None, _append)
+        return remote_path, backup_path
+
+    @staticmethod
     async def list_jars(server: Server, service_name: str, custom_path: str | None = None) -> list[dict]:
         """
         列出服务 lib 目录下的所有 JAR 文件

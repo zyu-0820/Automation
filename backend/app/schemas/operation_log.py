@@ -23,6 +23,7 @@ class BatchConfigRequest(BaseModel):
     filename: str
     content: str
     dir: str = "conf"
+    mode: str = "overwrite"  # "overwrite" or "append"
 
 
 class BatchJarRequest(BaseModel):
