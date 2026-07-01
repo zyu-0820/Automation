@@ -1,9 +1,14 @@
 <template>
   <div class="config-view">
     <div class="page-header">
-      <div>
-        <h2>Configuration Files</h2>
-        <span class="subtitle" v-if="service">{{ service.name }}</span>
+      <div style="display:flex;align-items:center;gap:4px">
+        <el-button text @click="$router.back()">
+          <el-icon><ArrowLeft /></el-icon>
+        </el-button>
+        <div>
+          <h2>Configuration Files</h2>
+          <span class="subtitle" v-if="service">{{ service.name }}</span>
+        </div>
       </div>
     </div>
 

@@ -1,9 +1,14 @@
 <template>
   <div class="jars-view">
     <div class="page-header">
-      <div>
-        <h2>JAR Management</h2>
-        <span class="subtitle" v-if="service">{{ service.name }}</span>
+      <div style="display:flex;align-items:center;gap:4px">
+        <el-button text @click="$router.back()">
+          <el-icon><ArrowLeft /></el-icon>
+        </el-button>
+        <div>
+          <h2>JAR Management</h2>
+          <span class="subtitle" v-if="service">{{ service.name }}</span>
+        </div>
       </div>
       <el-button type="primary" @click="uploadDialogVisible = true">
         <el-icon><Upload /></el-icon> Upload JAR

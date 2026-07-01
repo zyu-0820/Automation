@@ -1,9 +1,14 @@
 <template>
   <div class="server-detail">
     <div class="page-header">
-      <div>
-        <h2>{{ server?.name }}</h2>
-        <span class="server-info">{{ server?.host }}:{{ server?.port }} | {{ server?.username }}</span>
+      <div style="display:flex;align-items:center;gap:4px">
+        <el-button text @click="$router.push('/servers')">
+          <el-icon><ArrowLeft /></el-icon>
+        </el-button>
+        <div>
+          <h2>{{ server?.name }}</h2>
+          <span class="server-info">{{ server?.host }}:{{ server?.port }} | {{ server?.username }}</span>
+        </div>
       </div>
       <div class="header-actions">
         <el-button @click="handleRefreshAll" :loading="refreshingAll">
