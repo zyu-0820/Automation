@@ -39,8 +39,12 @@
           <div class="header-breadcrumb">
             <el-breadcrumb>
               <el-breadcrumb-item :to="{ path: '/' }">Home</el-breadcrumb-item>
-              <el-breadcrumb-item v-if="currentRoute" :to="{ path: currentRoute }">
-                {{ currentRoute }}
+              <el-breadcrumb-item
+                v-for="(crumb, idx) in breadcrumbs"
+                :key="crumb.path"
+                :to="idx < breadcrumbs.length - 1 ? { path: crumb.path } : undefined"
+              >
+                {{ crumb.label }}
               </el-breadcrumb-item>
             </el-breadcrumb>
           </div>
@@ -67,7 +71,30 @@ const activeMenu = computed(() => {
   if (path.startsWith('/services')) return ''
   return path
 })
-const currentRoute = computed(() => route.path)
+const breadcrumbs = computed(() => {
+  const path = route.path
+  const segments = path.split('/').filter(Boolean)
+  const crumbs = []
+  let acc = ''
+
+  const labelMap = {
+    servers: 'Servers',
+    services: 'Services',
+    config: 'Config',
+    jars: 'JARs',
+    'multi-server': 'Batch Operations',
+    operations: 'Operation Logs',
+  }
+
+  for (const seg of segments) {
+    acc += '/' + seg
+    if (/^\d+$/.test(seg)) continue
+    if (labelMap[seg]) {
+      crumbs.push({ label: labelMap[seg], path: acc })
+    }
+  }
+  return crumbs
+})
 </script>
 
 <style scoped>
