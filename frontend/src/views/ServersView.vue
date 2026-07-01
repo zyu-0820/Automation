@@ -37,7 +37,7 @@
       width="600px"
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="140px">
         <el-form-item label="Name" prop="name">
           <el-input v-model="form.name" placeholder="e.g. prod-server-1" />
         </el-form-item>
