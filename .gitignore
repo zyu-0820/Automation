@@ -1,0 +1,22 @@
+# Sensitive files
+.env
+.encryption_key
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temp files
+.tmp-node
+temp/
+
+# Binary archives
+*.tar
+
+# Database
+data/
+
+# IDE
+.claude/

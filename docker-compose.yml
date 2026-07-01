@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    container_name: java-service-manager
+    ports:
+      - "8031:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+      - SECRET_KEY=change-me-in-production
+    restart: unless-stopped
