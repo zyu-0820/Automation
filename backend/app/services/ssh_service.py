@@ -21,6 +21,7 @@ logger = logging.getLogger("ssh_service")
 
 from app.models.server import Server
 from app.schemas.server import ServerWithCredentials
+from app.utils.backup import find_unique_backup_name
 from app.utils.encryption import decrypt
 from app.utils.ssh_client import SSHClient, SSHConnectionInfo
 
@@ -559,10 +560,7 @@ class SSHService:
             try:
                 # 如果原文件存在,先备份
                 if ssh.path_exists(remote_path):
-                    from datetime import date
-
-                    today = date.today().strftime("%Y%m%d")
-                    bak = f"{remote_path}.bak-{today}"
+                    bak = find_unique_backup_name(lambda p: ssh.path_exists(p), remote_path)
                     ssh.rename(remote_path, bak)
                 # 写入新内容
                 ssh.write_file(remote_path, content.encode("utf-8"))
@@ -590,10 +588,7 @@ class SSHService:
             ssh.connect()
             try:
                 if ssh.path_exists(remote_path):
-                    from datetime import date
-
-                    today = date.today().strftime("%Y%m%d")
-                    bak = f"{remote_path}.bak-{today}"
+                    bak = find_unique_backup_name(lambda p: ssh.path_exists(p), remote_path)
                     ssh.exec_command(f"cp -p {remote_path} {bak}")
                 ssh.append_file(remote_path, content.encode("utf-8"))
                 return bak
@@ -681,10 +676,7 @@ class SSHService:
             ssh.connect()
             try:
                 if ssh.path_exists(remote_path):
-                    from datetime import date
-
-                    today = date.today().strftime("%Y%m%d")
-                    bak = f"{remote_path}.bak-{today}"
+                    bak = find_unique_backup_name(lambda p: ssh.path_exists(p), remote_path)
                     ssh.rename(remote_path, bak)
                 ssh.write_file(remote_path, content)
                 return bak
@@ -719,10 +711,8 @@ class SSHService:
             ssh.connect()
             try:
                 if ssh.path_exists(remote_path):
-                    from datetime import date
-
-                    today = date.today().strftime("%Y%m%d")
-                    ssh.rename(remote_path, f"{remote_path}.deleted-{today}")
+                    bak = find_unique_backup_name(lambda p: ssh.path_exists(p), remote_path, marker="deleted")
+                    ssh.rename(remote_path, bak)
             finally:
                 ssh.close()
 
