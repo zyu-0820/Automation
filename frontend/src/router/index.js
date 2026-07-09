@@ -1,10 +1,17 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import DefaultLayout from '@/layouts/DefaultLayout.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/LoginView.vue'),
+  },
+  {
     path: '/',
     component: DefaultLayout,
+    meta: { requiresAuth: true },
     children: [
       { path: '', redirect: '/servers' },
       {
@@ -44,6 +51,23 @@ const routes = [
 const router = createRouter({
   history: createWebHashHistory(),
   routes,
+})
+
+router.beforeEach((to) => {
+  const auth = useAuthStore()
+
+  if (to.path === '/login') {
+    // Redirect to home if already authenticated
+    if (auth.isAuthenticated) return '/'
+    return true
+  }
+
+  // Redirect to login if not authenticated
+  if (!auth.isAuthenticated) {
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
+
+  return true
 })
 
 export default router

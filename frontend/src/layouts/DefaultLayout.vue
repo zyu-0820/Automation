@@ -49,21 +49,147 @@
             </el-breadcrumb>
           </div>
         </div>
+        <div class="header-right">
+          <el-dropdown trigger="click" @command="handleUserCommand">
+            <span class="user-info">
+              <el-icon><UserFilled /></el-icon>
+              <span class="username">{{ authStore.username || 'admin' }}</span>
+              <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="changePassword">
+                  <el-icon><Edit /></el-icon>
+                  修改密码
+                </el-dropdown-item>
+                <el-dropdown-item command="logout" divided>
+                  <el-icon><SwitchButton /></el-icon>
+                  退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
       </el-header>
       <el-main>
         <router-view />
       </el-main>
     </el-container>
+
+    <!-- Change Password Dialog -->
+    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="420px" :close-on-click-modal="false">
+      <el-form
+        ref="passwordFormRef"
+        :model="passwordForm"
+        :rules="passwordRules"
+        label-width="100px"
+        @submit.prevent="handleChangePassword"
+      >
+        <el-form-item label="原密码" prop="oldPassword">
+          <el-input
+            v-model="passwordForm.oldPassword"
+            type="password"
+            placeholder="请输入原密码"
+            show-password
+          />
+        </el-form-item>
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input
+            v-model="passwordForm.newPassword"
+            type="password"
+            placeholder="请输入新密码"
+            show-password
+          />
+        </el-form-item>
+        <el-form-item label="确认新密码" prop="confirmPassword">
+          <el-input
+            v-model="passwordForm.confirmPassword"
+            type="password"
+            placeholder="请再次输入新密码"
+            show-password
+            @keyup.enter="handleChangePassword"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="passwordLoading" @click="handleChangePassword">
+          确认修改
+        </el-button>
+      </template>
+    </el-dialog>
   </el-container>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, ref, reactive } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
 
 const isCollapsed = ref(false)
+
+// --- Password dialog ---
+const passwordDialogVisible = ref(false)
+const passwordLoading = ref(false)
+const passwordFormRef = ref(null)
+
+const passwordForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+})
+
+const validateConfirmPassword = (_rule, value) => {
+  if (value !== passwordForm.newPassword) {
+    return Promise.reject(new Error('两次输入的密码不一致'))
+  }
+  return Promise.resolve()
+}
+
+const passwordRules = {
+  oldPassword: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
+  newPassword: [{ required: true, message: '请输入新密码', trigger: 'blur' }],
+  confirmPassword: [
+    { required: true, message: '请再次输入新密码', trigger: 'blur' },
+    { validator: validateConfirmPassword, trigger: 'blur' },
+  ],
+}
+
+function handleChangePassword() {
+  passwordFormRef.value?.validate((valid) => {
+    if (!valid) return
+    passwordLoading.value = true
+    const result = authStore.changePassword(passwordForm.oldPassword, passwordForm.newPassword)
+    if (result.success) {
+      ElMessage.success('密码修改成功')
+      passwordDialogVisible.value = false
+      passwordForm.oldPassword = ''
+      passwordForm.newPassword = ''
+      passwordForm.confirmPassword = ''
+    } else {
+      ElMessage.error(result.message)
+    }
+    passwordLoading.value = false
+  })
+}
+
+// --- User dropdown ---
+function handleUserCommand(command) {
+  if (command === 'changePassword') {
+    passwordForm.oldPassword = ''
+    passwordForm.newPassword = ''
+    passwordForm.confirmPassword = ''
+    passwordDialogVisible.value = true
+  } else if (command === 'logout') {
+    authStore.logout()
+    router.push('/login')
+  }
+}
 
 const activeMenu = computed(() => {
   const path = route.path
@@ -159,5 +285,34 @@ const breadcrumbs = computed(() => {
 .header-breadcrumb {
   display: flex;
   align-items: center;
+}
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #606266;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+.user-info:hover {
+  background-color: #f5f7fa;
+}
+.username {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.arrow-icon {
+  font-size: 12px;
+  color: #909399;
 }
 </style>
